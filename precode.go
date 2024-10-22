@@ -17,10 +17,10 @@ func Generator(ctx context.Context, ch chan<- int64, fn func(int64)) {
 	// 1. Функция Generator
 	var counter int64
 	counter = 1
+	defer close(ch)
 	for {
 		select {
 		case <-ctx.Done():
-			close(ch)
 			return
 		case ch <- counter:
 			fn(counter)
@@ -32,11 +32,11 @@ func Generator(ctx context.Context, ch chan<- int64, fn func(int64)) {
 // Worker читает число из канала in и пишет его в канал out.
 func Worker(in <-chan int64, out chan<- int64) {
 	// 2. Функция Worker
+	defer close(out)
 	for v := range in {
 		out <- v
 		time.Sleep(1 * time.Millisecond)
 	}
-	close(out)
 }
 
 func main() {
@@ -48,13 +48,13 @@ func main() {
 	defer cancel()
 
 	// для проверки будем считать количество и сумму отправленных чисел
-	var inputSum atomic.Int64   // сумма сгенерированных чисел
-	var inputCount atomic.Int64 // количество сгенерированных чисел
+	var inputSum int64   // сумма сгенерированных чисел
+	var inputCount int64 // количество сгенерированных чисел
 
 	// генерируем числа, считая параллельно их количество и сумму
 	go Generator(ctx, chIn, func(i int64) {
-		inputSum.Add(i)
-		inputCount.Add(1)
+		atomic.AddInt64(&inputSum, i)
+		atomic.AddInt64(&inputCount, 1)
 	})
 
 	const NumOut = 5 // количество обрабатывающих горутин и каналов
@@ -101,21 +101,21 @@ func main() {
 		sum += v
 	}
 
-	fmt.Println("Количество чисел", inputCount.Load(), count)
-	fmt.Println("Сумма чисел", inputSum.Load(), sum)
+	fmt.Println("Количество чисел", inputCount, count)
+	fmt.Println("Сумма чисел", inputSum, sum)
 	fmt.Println("Разбивка по каналам", amounts)
 
 	// проверка результатов
-	if inputSum.Load() != sum {
-		log.Fatalf("Ошибка: суммы чисел не равны: %d != %d\n", inputSum.Load(), sum)
+	if inputSum != sum {
+		log.Fatalf("Ошибка: суммы чисел не равны: %d != %d\n", inputSum, sum)
 	}
-	if inputCount.Load() != count {
-		log.Fatalf("Ошибка: количество чисел не равно: %d != %d\n", inputCount.Load(), count)
+	if inputCount != count {
+		log.Fatalf("Ошибка: количество чисел не равно: %d != %d\n", inputCount, count)
 	}
 	for _, v := range amounts {
-		inputCount.Add(-v)
+		inputCount -= v
 	}
-	if inputCount.Load() != 0 {
+	if inputCount != 0 {
 		log.Fatalf("Ошибка: разделение чисел по каналам неверное\n")
 	}
 }
